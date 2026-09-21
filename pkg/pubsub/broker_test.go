@@ -14,12 +14,12 @@ func TestSubscribeAndPublish(t *testing.T) {
 	defer broker.Shutdown()
 
 	sub := pubsub.NewSubscriber("test-sub-1")
-	if err := broker.Subscribe(pubsub.TopicChat, sub); err != nil {
+	if err := broker.Subscribe(pubsub.RoomTopic("general"), sub); err != nil {
 		t.Fatalf("subscribe failed: %v", err)
 	}
 
 	payload := []byte("hello NexMsg")
-	if err := broker.Publish(pubsub.TopicChat, payload); err != nil {
+	if err := broker.Publish(pubsub.RoomTopic("general"), payload); err != nil {
 		t.Fatalf("publish failed: %v", err)
 	}
 
@@ -28,8 +28,8 @@ func TestSubscribeAndPublish(t *testing.T) {
 		if string(msg.Payload) != string(payload) {
 			t.Errorf("got payload %q, want %q", msg.Payload, payload)
 		}
-		if msg.Topic != pubsub.TopicChat {
-			t.Errorf("got topic %v, want %v", msg.Topic, pubsub.TopicChat)
+		if msg.Topic != pubsub.RoomTopic("general") {
+			t.Errorf("got topic %v, want %v", msg.Topic, pubsub.RoomTopic("general"))
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for message")
@@ -41,14 +41,14 @@ func TestUnsubscribeStopsDelivery(t *testing.T) {
 	defer broker.Shutdown()
 
 	sub := pubsub.NewSubscriber("unsub-test")
-	if err := broker.Subscribe(pubsub.TopicNotification, sub); err != nil {
+	topic := pubsub.RoomTopic("notifications")
+	if err := broker.Subscribe(topic, sub); err != nil {
 		t.Fatalf("subscribe failed: %v", err)
 	}
-	if err := broker.Unsubscribe(pubsub.TopicNotification, sub); err != nil {
+	if err := broker.Unsubscribe(topic, sub); err != nil {
 		t.Fatalf("unsubscribe failed: %v", err)
 	}
 
-	// done channel should be closed after unsubscribe
 	select {
 	case <-sub.Done():
 		// expected
@@ -56,8 +56,7 @@ func TestUnsubscribeStopsDelivery(t *testing.T) {
 		t.Fatal("done channel not closed after unsubscribe")
 	}
 
-	// publish after unsubscribe — subscriber should NOT receive
-	if err := broker.Publish(pubsub.TopicNotification, []byte("ghost")); err != nil {
+	if err := broker.Publish(topic, []byte("ghost")); err != nil {
 		t.Fatalf("publish failed: %v", err)
 	}
 
@@ -66,9 +65,8 @@ func TestUnsubscribeStopsDelivery(t *testing.T) {
 		if ok {
 			t.Fatalf("received message after unsubscribe: %q", msg.Payload)
 		}
-		// ok == false means channel is closed — expected
 	case <-time.After(100 * time.Millisecond):
-		// also acceptable — no message
+		// also acceptable
 	}
 }
 
@@ -76,17 +74,18 @@ func TestFanOutToMultipleSubscribers(t *testing.T) {
 	broker := pubsub.NewBroker()
 	defer broker.Shutdown()
 
+	topic := pubsub.RoomTopic("presence")
 	const numSubs = 5
 	subs := make([]*pubsub.Subscriber, numSubs)
 	for i := range subs {
 		subs[i] = pubsub.NewSubscriber(fmt.Sprintf("fan-out-%d", i))
-		if err := broker.Subscribe(pubsub.TopicPresence, subs[i]); err != nil {
+		if err := broker.Subscribe(topic, subs[i]); err != nil {
 			t.Fatalf("subscribe failed for sub %d: %v", i, err)
 		}
 	}
 
 	payload := []byte("user-online")
-	if err := broker.Publish(pubsub.TopicPresence, payload); err != nil {
+	if err := broker.Publish(topic, payload); err != nil {
 		t.Fatalf("publish failed: %v", err)
 	}
 
@@ -106,8 +105,9 @@ func TestConcurrentPublish(t *testing.T) {
 	broker := pubsub.NewBroker()
 	defer broker.Shutdown()
 
+	topic := pubsub.RoomTopic("chat")
 	sub := pubsub.NewSubscriber("concurrent-receiver")
-	if err := broker.Subscribe(pubsub.TopicChat, sub); err != nil {
+	if err := broker.Subscribe(topic, sub); err != nil {
 		t.Fatalf("subscribe failed: %v", err)
 	}
 
@@ -122,14 +122,13 @@ func TestConcurrentPublish(t *testing.T) {
 			defer wg.Done()
 			for m := 0; m < msgsPerPublisher; m++ {
 				payload := fmt.Appendf(nil, "p%d-m%d", publisherID, m)
-				if err := broker.Publish(pubsub.TopicChat, payload); err != nil {
+				if err := broker.Publish(topic, payload); err != nil {
 					t.Errorf("publish failed from publisher %d: %v", publisherID, err)
 				}
 			}
 		}(p)
 	}
 
-	// collect messages in a separate goroutine
 	received := make(chan int, 1)
 	go func() {
 		count := 0
@@ -145,7 +144,7 @@ func TestConcurrentPublish(t *testing.T) {
 		received <- count
 	}()
 
-	wg.Wait() // all publishers done
+	wg.Wait()
 
 	got := <-received
 	want := numPublishers * msgsPerPublisher
@@ -158,7 +157,6 @@ func TestPublishToEmptyTopic(t *testing.T) {
 	broker := pubsub.NewBroker()
 	defer broker.Shutdown()
 
-	// publishing to a topic with no subscribers should not error
 	if err := broker.Publish(pubsub.TopicSystem, []byte("no-one-listening")); err != nil {
 		t.Fatalf("publish to empty topic should not error, got: %v", err)
 	}
@@ -168,24 +166,26 @@ func TestMultipleTopicsIsolation(t *testing.T) {
 	broker := pubsub.NewBroker()
 	defer broker.Shutdown()
 
+	chatTopic := pubsub.RoomTopic("chat")
+	notifTopic := pubsub.RoomTopic("notif")
+
 	chatSub := pubsub.NewSubscriber("chat-only")
 	notifSub := pubsub.NewSubscriber("notif-only")
 
-	if err := broker.Subscribe(pubsub.TopicChat, chatSub); err != nil {
+	if err := broker.Subscribe(chatTopic, chatSub); err != nil {
 		t.Fatalf("subscribe chat failed: %v", err)
 	}
-	if err := broker.Subscribe(pubsub.TopicNotification, notifSub); err != nil {
+	if err := broker.Subscribe(notifTopic, notifSub); err != nil {
 		t.Fatalf("subscribe notif failed: %v", err)
 	}
 
-	if err := broker.Publish(pubsub.TopicChat, []byte("chat-msg")); err != nil {
+	if err := broker.Publish(chatTopic, []byte("chat-msg")); err != nil {
 		t.Fatalf("publish chat failed: %v", err)
 	}
-	if err := broker.Publish(pubsub.TopicNotification, []byte("notif-msg")); err != nil {
+	if err := broker.Publish(notifTopic, []byte("notif-msg")); err != nil {
 		t.Fatalf("publish notif failed: %v", err)
 	}
 
-	// chat subscriber should only get chat messages
 	select {
 	case msg := <-chatSub.Messages():
 		if string(msg.Payload) != "chat-msg" {
@@ -195,15 +195,15 @@ func TestMultipleTopicsIsolation(t *testing.T) {
 		t.Fatal("chatSub timed out")
 	}
 
-	// chat subscriber should NOT receive notification messages
 	select {
-	case msg := <-chatSub.Messages():
-		t.Fatalf("chatSub received cross-topic message: %q", msg.Payload)
+	case msg, ok := <-chatSub.Messages():
+		if ok {
+			t.Fatalf("chatSub received cross-topic message: %q", msg.Payload)
+		}
 	case <-time.After(100 * time.Millisecond):
 		// expected
 	}
 
-	// notif subscriber should only get notification messages
 	select {
 	case msg := <-notifSub.Messages():
 		if string(msg.Payload) != "notif-msg" {
@@ -224,7 +224,6 @@ func TestShutdownClosesChannels(t *testing.T) {
 
 	broker.Shutdown()
 
-	// after shutdown, Messages channel should be closed
 	select {
 	case _, ok := <-sub.Messages():
 		if ok {
@@ -234,7 +233,6 @@ func TestShutdownClosesChannels(t *testing.T) {
 		t.Fatal("Messages channel not closed after shutdown")
 	}
 
-	// done channel should be closed
 	select {
 	case <-sub.Done():
 		// expected

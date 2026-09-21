@@ -1,27 +1,14 @@
 package pubsub
 
-import "fmt"
-
 // Topic represents a message category in the pub/sub system.
-type Topic int
+// String-based to support dynamic room topics.
+type Topic string
 
 const (
-	TopicChat         Topic = iota // Real-time chat messages
-	TopicNotification              // Push notifications
-	TopicPresence                  // Online/offline status
-	TopicSystem                    // Internal system events
+	TopicSystem Topic = "system" // Internal system events
 )
 
-var topicNames = [...]string{
-	TopicChat:         "chat",
-	TopicNotification: "notification",
-	TopicPresence:     "presence",
-	TopicSystem:       "system",
-}
-
-func (t Topic) String() string {
-	if int(t) < len(topicNames) {
-		return topicNames[t]
-	}
-	return fmt.Sprintf("topic(%d)", t)
+// RoomTopic creates a topic for a chat room.
+func RoomTopic(room string) Topic {
+	return Topic("room:" + room)
 }

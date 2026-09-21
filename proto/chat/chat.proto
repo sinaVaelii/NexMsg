@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package chat;
+
+option go_package = "github.com/sinavaelii/NexMsg/proto/chat";
+
+import "google/protobuf/timestamp.proto";
+
+// ChatService provides real-time messaging over gRPC.
+service ChatService {
+  // Stream opens a bidirectional stream for real-time chat.
+  rpc Stream(stream ClientEvent) returns (stream ServerEvent);
+
+  // CreateRoom creates a new chat room.
+  rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
+
+  // ListRooms returns all available rooms.
+  rpc ListRooms(ListRoomsRequest) returns (ListRoomsResponse);
+
+  // GetMessages returns message history for a room.
+  rpc GetMessages(GetMessagesRequest) returns (GetMessagesResponse);
+}
+
+// --- Streaming events ---
+
+message ClientEvent {
+  oneof event {
+    JoinRoom join = 1;
+    LeaveRoom leave = 2;
+    SendMessage send = 3;
+    Typing typing = 4;
+  }
+}
+
+message ServerEvent {
+  oneof event {
+    ChatMessage message = 1;
+    UserJoined user_joined = 2;
+    UserLeft user_left = 3;
+    UserTyping user_typing = 4;
+    ErrorEvent error = 5;
+  }
+}
+
+message JoinRoom {
+  string room = 1;
+  string username = 2;
+}
+
+message LeaveRoom {
+  string room = 1;
+}
+
+message SendMessage {
+  string room = 1;
+  string content = 2;
+}
+
+message Typing {
+  string room = 1;
+}
+
+message ChatMessage {
+  string id = 1;
+  string room = 2;
+  string username = 3;
+  string content = 4;
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+message UserJoined {
+  string room = 1;
+  string username = 2;
+}
+
+message UserLeft {
+  string room = 1;
+  string username = 2;
+}
+
+message UserTyping {
+  string room = 1;
+  string username = 2;
+}
+
+message ErrorEvent {
+  string message = 1;
+}
+
+// --- Unary RPCs ---
+
+message CreateRoomRequest {
+  string name = 1;
+}
+
+message CreateRoomResponse {
+  string name = 1;
+}
+
+message ListRoomsRequest {}
+
+message ListRoomsResponse {
+  repeated string rooms = 1;
+}
+
+message GetMessagesRequest {
+  string room = 1;
+  int32 limit = 2;
+}
+
+message GetMessagesResponse {
+  repeated ChatMessage messages = 1;
+}

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="NexMsg — Real-time messaging platform">
+    <title>NexMsg</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-icon">💬</div>
+            <h1 class="modal-title">NexMsg</h1>
+            <p class="modal-subtitle">Real-time messaging</p>
+            <form id="login-form">
+                <input type="text" id="username-input" placeholder="Enter your username" autocomplete="off" maxlength="20" required>
+                <button type="submit" class="btn-primary">Start Chatting</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" class="app hidden">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-brand">
+                    <span class="brand-icon">💬</span>
+                    <span class="brand-text">NexMsg</span>
+                </div>
+                <button id="new-room-btn" class="icon-btn" title="New Room">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                </button>
+            </div>
+
+            <div id="new-room-panel" class="new-room-panel hidden">
+                <input type="text" id="new-room-input" placeholder="Room name..." maxlength="30">
+                <button id="create-room-btn" class="btn-small">Create</button>
+            </div>
+
+            <div class="room-list" id="room-list">
+                <!-- rooms populated by JS -->
+            </div>
+
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar" id="user-avatar"></div>
+                    <span class="user-name" id="user-display"></span>
+                </div>
+                <div class="connection-status" id="connection-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connected</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Chat Area -->
+        <main class="chat-area">
+            <!-- Empty state -->
+            <div id="empty-state" class="empty-state">
+                <div class="empty-icon">💬</div>
+                <h2>Select a room to start chatting</h2>
+                <p>Choose from the sidebar or create a new room</p>
+            </div>
+
+            <!-- Chat view -->
+            <div id="chat-view" class="chat-view hidden">
+                <div class="chat-header">
+                    <div class="chat-header-info">
+                        <h2 id="chat-room-name"></h2>
+                        <span id="chat-room-members" class="member-count"></span>
+                    </div>
+                </div>
+
+                <div class="messages-container" id="messages-container">
+                    <div class="messages" id="messages">
+                        <!-- messages populated by JS -->
+                    </div>
+                </div>
+
+                <div id="typing-indicator" class="typing-indicator hidden">
+                    <div class="typing-dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                    <span id="typing-user"></span>
+                </div>
+
+                <div class="message-input-area">
+                    <form id="message-form" class="message-form">
+                        <input type="text" id="message-input" placeholder="Write a message..." autocomplete="off" maxlength="2000">
+                        <button type="submit" class="send-btn" id="send-btn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                            </svg>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

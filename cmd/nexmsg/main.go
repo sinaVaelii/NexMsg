@@ -1,77 +1,94 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
-	"sync"
+	"net"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
+	"github.com/sinavaelii/NexMsg/internal/grpcserver"
+	"github.com/sinavaelii/NexMsg/internal/hub"
+	"github.com/sinavaelii/NexMsg/internal/server"
+	"github.com/sinavaelii/NexMsg/internal/store"
 	"github.com/sinavaelii/NexMsg/pkg/pubsub"
+	"google.golang.org/grpc"
 )
 
 func main() {
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
 
+	// --- Redis ---
+	redisAddr := envOr("REDIS_ADDR", "localhost:6379")
+	st := store.New(redisAddr)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := st.Ping(ctx); err != nil {
+		log.Fatalf("redis connection failed (%s): %v", redisAddr, err)
+	}
+	log.Printf("[main] connected to redis at %s", redisAddr)
+
+	// seed default rooms
+	for _, room := range []string{"general", "random", "tech"} {
+		_ = st.AddRoom(context.Background(), room)
+	}
+
+	// --- Pub/Sub Broker ---
 	broker := pubsub.NewBroker()
 
-	// --- create subscribers ---
-	alice := pubsub.NewSubscriber("alice")
-	bob := pubsub.NewSubscriber("bob")
-	sysMonitor := pubsub.NewSubscriber("sys-monitor")
+	// --- Hub ---
+	h := hub.New(broker, st)
+	go h.Run()
 
-	// --- subscribe to topics ---
-	must(broker.Subscribe(pubsub.TopicChat, alice))
-	must(broker.Subscribe(pubsub.TopicChat, bob))
-	must(broker.Subscribe(pubsub.TopicNotification, alice))
-	must(broker.Subscribe(pubsub.TopicSystem, sysMonitor))
-
-	// --- start consumer goroutines ---
-	var wg sync.WaitGroup
-	consume := func(sub *pubsub.Subscriber) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for msg := range sub.Messages() {
-				fmt.Printf("  📨 [%s] %s → %q (at %s)\n",
-					sub.ID(), msg.Topic, msg.Payload,
-					msg.CreatedAt.Format(time.TimeOnly))
-			}
-			fmt.Printf("  🔌 [%s] channel closed\n", sub.ID())
-		}()
+	// --- gRPC Server ---
+	grpcLis, err := net.Listen("tcp", envOr("GRPC_ADDR", ":9090"))
+	if err != nil {
+		log.Fatalf("grpc listen failed: %v", err)
 	}
+	grpcSrv := grpc.NewServer()
+	chatSrv := grpcserver.NewChatServer(h, st)
+	chatSrv.RegisterTo(grpcSrv)
 
-	consume(alice)
-	consume(bob)
-	consume(sysMonitor)
+	go func() {
+		log.Printf("[main] gRPC server listening on %s", grpcLis.Addr())
+		if err := grpcSrv.Serve(grpcLis); err != nil {
+			log.Fatalf("grpc serve failed: %v", err)
+		}
+	}()
 
-	// --- publish messages ---
-	fmt.Println("\n🚀 Publishing messages...")
+	// --- HTTP + WebSocket Server ---
+	httpAddr := envOr("HTTP_ADDR", ":8080")
+	srv := server.New(h, st)
 
-	must(broker.Publish(pubsub.TopicChat, []byte("Hey everyone!")))
-	must(broker.Publish(pubsub.TopicChat, []byte("NexMsg is alive!")))
-	must(broker.Publish(pubsub.TopicNotification, []byte("You have 3 new messages")))
-	must(broker.Publish(pubsub.TopicSystem, []byte("health-check: OK")))
+	go func() {
+		log.Printf("[main] HTTP server listening on %s", httpAddr)
+		if err := srv.ListenAndServe(httpAddr); err != nil {
+			log.Fatalf("http serve failed: %v", err)
+		}
+	}()
 
-	// let messages propagate
-	time.Sleep(100 * time.Millisecond)
+	log.Println("[main] NexMsg is running!")
+	log.Printf("[main] Frontend: http://localhost%s", httpAddr)
+	log.Printf("[main] WebSocket: ws://localhost%s/ws?username=YOUR_NAME", httpAddr)
+	log.Printf("[main] gRPC: localhost%s", grpcLis.Addr())
 
-	// --- unsubscribe bob from chat ---
-	fmt.Println("\n🔕 Unsubscribing bob from chat...")
-	must(broker.Unsubscribe(pubsub.TopicChat, bob))
+	// --- Graceful Shutdown ---
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
 
-	must(broker.Publish(pubsub.TopicChat, []byte("Bob won't see this")))
-	time.Sleep(100 * time.Millisecond)
-
-	// --- shutdown ---
-	fmt.Println("\n⏹ Shutting down broker...")
+	log.Println("[main] shutting down...")
+	grpcSrv.GracefulStop()
 	broker.Shutdown()
-
-	wg.Wait()
-	fmt.Println("\n✅ All done. No goroutine leaks.")
+	_ = st.Close()
+	log.Println("[main] goodbye!")
 }
 
-func must(err error) {
-	if err != nil {
-		log.Fatalf("fatal: %v", err)
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
+	return fallback
 }
