@@ -94,8 +94,8 @@ func (b *Broker) Shutdown() {
 		typ:    cmdShutdown,
 		result: result,
 	}
-	<-result  // wait for run loop to finish processing
-	<-b.quit  // wait for run loop goroutine to exit
+	<-result // wait for run loop to finish processing
+	<-b.quit // wait for run loop goroutine to exit
 }
 
 // run is the broker's main loop — the ONLY goroutine that touches the
@@ -145,7 +145,7 @@ func (b *Broker) handleUnsubscribe(subs map[Topic]map[*Subscriber]struct{}, cmd 
 		delete(subs, cmd.topic)
 	}
 
-	close(cmd.subscriber.done)
+	cmd.subscriber.closeCh()
 	log.Printf("[broker] unsubscribed %s from %s", cmd.subscriber, cmd.topic)
 	cmd.result <- nil
 }
@@ -170,13 +170,20 @@ func (b *Broker) handlePublish(subs map[Topic]map[*Subscriber]struct{}, cmd comm
 }
 
 func (b *Broker) handleShutdown(subs map[Topic]map[*Subscriber]struct{}, cmd command) {
+	// Collect unique subscribers — a single subscriber can appear under
+	// multiple topics, and closing its channels twice is a panic.
+	unique := make(map[*Subscriber]struct{})
 	for topic, topicSubs := range subs {
 		for sub := range topicSubs {
-			close(sub.ch)
-			close(sub.done)
+			unique[sub] = struct{}{}
 		}
 		delete(subs, topic)
 	}
+
+	for sub := range unique {
+		sub.closeCh()
+	}
+
 	close(b.cmdCh)
 	log.Printf("[broker] shutdown complete")
 	cmd.result <- nil

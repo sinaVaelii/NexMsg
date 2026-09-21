@@ -62,10 +62,13 @@ func TestUnsubscribeStopsDelivery(t *testing.T) {
 	}
 
 	select {
-	case msg := <-sub.Messages():
-		t.Fatalf("received message after unsubscribe: %q", msg.Payload)
+	case msg, ok := <-sub.Messages():
+		if ok {
+			t.Fatalf("received message after unsubscribe: %q", msg.Payload)
+		}
+		// ok == false means channel is closed — expected
 	case <-time.After(100 * time.Millisecond):
-		// expected — no message
+		// also acceptable — no message
 	}
 }
 

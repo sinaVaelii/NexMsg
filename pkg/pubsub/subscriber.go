@@ -1,6 +1,9 @@
 package pubsub
 
-import "fmt"
+import (
+	"fmt"
+	"sync/atomic"
+)
 
 const defaultBufferSize = 64
 
@@ -8,9 +11,10 @@ const defaultBufferSize = 64
 // Each subscriber has its own buffered channel — the broker writes to it,
 // the consumer reads from it.
 type Subscriber struct {
-	id   string
-	ch   chan Message
-	done chan struct{} // closed by broker on shutdown or unsubscribe
+	id     string
+	ch     chan Message
+	done   chan struct{} // closed by broker on shutdown or unsubscribe
+	closed atomic.Bool
 }
 
 // NewSubscriber creates a subscriber with the given ID and a default buffer size.
@@ -20,6 +24,18 @@ func NewSubscriber(id string) *Subscriber {
 		ch:   make(chan Message, defaultBufferSize),
 		done: make(chan struct{}),
 	}
+}
+
+// closeCh idempotently closes the subscriber's message and done channels.
+// Only the broker's run loop calls this — safe because the atomic flag
+// guarantees exactly-once semantics even if the subscriber appears in
+// multiple topics.
+func (s *Subscriber) closeCh() {
+	if !s.closed.CompareAndSwap(false, true) {
+		return // already closed
+	}
+	close(s.ch)
+	close(s.done)
 }
 
 // Messages returns the read-only channel the consumer should range over.
@@ -40,3 +56,4 @@ func (s *Subscriber) ID() string {
 func (s *Subscriber) String() string {
 	return fmt.Sprintf("subscriber(%s)", s.id)
 }
+
